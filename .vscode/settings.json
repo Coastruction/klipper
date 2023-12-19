@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.tcc": "c",
+        "gpio.h": "c",
+        "irq.h": "c"
+    }
+}
