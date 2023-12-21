@@ -1,11 +1,11 @@
 
 #include "basecmd.h" // oid_alloc
-//#include "board/gpio.h" // struct gpio_out
 #include "board/irq.h" // irq_disable
 #include "board/misc.h" // timer_is_before
 #include "basecmd.h" // oid_alloc
 #include "command.h" // DECL_COMMAND
 #include "sched.h" // sched_add_timer
+#include "board/gpio.h" // GPIO pins // not used yet, but will have to.
 #include "spicmds.h" // spidev_transfer
 
 
