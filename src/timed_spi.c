@@ -28,13 +28,23 @@ static uint_fast8_t timed_spi_event(struct timer *timer)
     struct valves_s *d = container_of(timer, struct valves_s, timer);
     if (move_queue_empty(&d->mq))
         shutdown("Missed scheduling of next timed spi event"); // I don't understand this message
-
+    
     struct move_node *mn = move_queue_pop(&d->mq);
     struct spi_move *m = container_of(mn, struct spi_move, node);
-
+    output("TIMED_SPI+EVENT %u(%c,%c,%c)", timer_read_time(), m->values[0],m->values[1],m->values[2]);
     spidev_transfer(d->spi, 1, sizeof(m->values), m->values);
     move_free(m);
 
+    //schedule the next event
+    if (!move_queue_empty(&d->mq)) {
+        
+        struct move_node *nn = move_queue_first(&d->mq);
+        uint32_t wake = container_of(nn, struct spi_move, node)->waketime;
+        output("Scheduling next SPI: %u", wake);
+        d->timer.waketime = wake;
+        return SF_RESCHEDULE;
+    }
+    
     return SF_DONE;
 }
 
@@ -55,6 +65,8 @@ command_queue_timed_spi(uint32_t *args)
 {
     struct valves_s *d = oid_lookup(args[0], command_config_timed_spi);
     struct spi_move *m = move_alloc();
+    
+    output("QUEUE_TIME_SPI clock: %u,(%c,%c,%c)", args[1], args[2], args[3], args[4]);
     uint32_t time = m->waketime = args[1];
 
     m->values[0] = args[2];

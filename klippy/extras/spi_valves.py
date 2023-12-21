@@ -67,18 +67,17 @@ class spi_valves:
     def cmd_SET_VALVES(self, gcmd):
         parameters = gcmd.get_command_parameters().copy()
         values = parameters.pop('VALUES', None)
+        values = [int(i) for i in values.split(',')]
         if values == None:
             raise gcmd.error("No VALUES parameter found")
         if len(values) != 11:
             raise gcmd.error("Expected 11 values for VALUES parameter")
         if max(values) > 255:
             raise gcmd.error("All VALUES must be less than 256")
-        #old command:  self.spi.spi_send([values])
-        # 
         
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.register_lookahead_callback(
-            lambda print_time: self._set_spi(print_time, values))        
+            lambda print_time: self._set_spi(print_time, values))
         
     cmd_VALVES_ENABLE_help = "Enables the valves"
     def cmd_VALVES_ENABLE(self, gcmd):
