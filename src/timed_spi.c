@@ -14,6 +14,7 @@ struct valves_s {
     uint32_t rest_ticks;
     struct spidev_s *spi;
     struct move_queue_head mq;
+    int32_t advance_t;
 };
 
 struct spi_move {
@@ -55,10 +56,32 @@ command_config_timed_spi(uint32_t *args)
                                    , sizeof(*ts));
     ts->timer.func = timed_spi_event;
     ts->spi = spidev_oid_lookup(args[1]);
+    ts->advance_t = args[2];
     move_queue_setup(&ts->mq, sizeof(struct spi_move));
 }
 DECL_COMMAND(command_config_timed_spi,
-             "config_timed_spi oid=%c spi_oid=%c");
+             "config_timed_spi oid=%c spi_oid=%c advance=%i");
+
+// Return the 'struct valves_s' for a given stepper oid
+static struct valves_s *
+timed_spi_oid_lookup(uint8_t oid)
+{
+    return oid_lookup(oid, command_config_timed_spi);
+}
+
+// Sets the advance parameters, i.e. how much later or earlier a valve
+// should be set to compensate for delays.
+void
+command_config_advance_parameter(uint32_t *args)
+{
+    struct valves_s *d = timed_spi_oid_lookup(args[0]);
+    d->advance_t = args[1];
+    output("advance: %i"
+          , d->advance_t);
+}
+DECL_COMMAND(command_config_advance_parameter,
+             "config_advance_parameter oid=%c advance=%i");
+
 
 void
 command_queue_timed_spi(uint32_t *args)
@@ -67,7 +90,7 @@ command_queue_timed_spi(uint32_t *args)
     struct spi_move *m = move_alloc();
     
     output("QUEUE_TIME_SPI clock: %u,(%c,%c,%c)", args[1], args[2], args[3], args[4]);
-    uint32_t time = m->waketime = args[1];
+    uint32_t time = m->waketime = args[1] + d->advance_t;
 
     m->values[0] = args[2];
     m->values[1] = args[3];
@@ -98,36 +121,3 @@ command_queue_timed_spi(uint32_t *args)
 DECL_COMMAND(command_queue_timed_spi,
              "queue_timed_spi oid=%c clock=%u b0=%c b1=%c b2=%c b3=%c b4=%c b5=%c b6=%c b7=%c b8=%c b9=%c b10=%c");
 
-/*void
-command_query_timed_spi_status(uint32_t *args)
-{
-    struct valves_s *ax = oid_lookup(args[0], command_config_timed_spi);
-    uint8_t msg[2] = { AR_FIFO_STATUS | AM_READ, 0x00 };
-    uint32_t time1 = timer_read_time();
-    spidev_transfer(ax->spi, 1, sizeof(msg), msg);
-    uint32_t time2 = timer_read_time();
-    adxl_status(ax, args[0], time1, time2, msg[1]);
-}
-DECL_COMMAND(command_query_adxl345_status, "query_adxl345_status oid=%c");
-
-
-void
-timed_spi_task(void)
-{
-    if (!sched_check_wake(&adxl345_wake))
-        return;
-    uint8_t oid;
-    struct adxl345 *ax;
-    foreach_oid(oid, ax, command_config_adxl345) {
-        uint_fast8_t flags = ax->flags;
-        if (!(flags & AX_PENDING))
-            continue;
-        if (flags & AX_HAVE_START)
-            adxl_start(ax, oid);
-        else
-            adxl_query(ax, oid);
-    }
-}
-DECL_TASK(adxl345_task);
-
-*/

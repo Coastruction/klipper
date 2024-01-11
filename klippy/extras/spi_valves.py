@@ -3,6 +3,7 @@
 # Copyright (C) 2023  Andries Koopmans <andries@coastruction.com>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
+import logging
 from . import bus
 
 class spi_valves:
@@ -24,29 +25,31 @@ class spi_valves:
         oe_pin = config.get("enable_pin")
         self.enable_pin = ppins.setup_pin('digital_out', oe_pin)
         self.enable_pin.setup_max_duration(0.)
-        self.enable_pin.setup_start_value(0, 0, False)
+        self.enable_pin.setup_start_value(1, 1, False)
+
+        self.advance = config.get("advance", 0)
         
         gcode = self.printer.lookup_object('gcode')
-        gcode.register_mux_command("SET_VALVES", "VALVES",
-                                   cname, self.cmd_SET_VALVES,
-                                   desc=self.cmd_SET_VALVES_help)
-        gcode.register_mux_command("VALVES_ENABLE", "VALVES",
-                                   cname, self.cmd_VALVES_ENABLE,
+        gcode.register_command("VALVES_SET", self.cmd_VALVES_SET,
+                                   desc=self.cmd_VALVES_SET_help)
+        gcode.register_command("VALVES_ENABLE", self.cmd_VALVES_ENABLE,
                                    desc=self.cmd_VALVES_ENABLE_help)
-        gcode.register_mux_command("VALVES_DISABLE", "VALVES",
-                                   cname, self.cmd_VALVES_DISABLE,
+        gcode.register_command("VALVES_DISABLE", self.cmd_VALVES_DISABLE,
                                    desc=self.cmd_VALVES_DISABLE_help)        
-        
+        gcode.register_command("VALVES_SET_ADVANCE", self.cmd_VALVES_SET_ADVANCE,
+                                   desc=self.cmd_VALVES_SET_ADVANCE_help) 
         self.last_values = [0,0,0,0,0,0,0,0,0,0]
 
         
 
     def _build_config(self):
-        self.mcu.add_config_cmd("config_timed_spi oid=%d spi_oid=%d"
-                            % (self.oid, self.spi.get_oid()))
+        self.mcu.add_config_cmd("config_timed_spi oid=%d spi_oid=%d advance=%i"
+                            % (self.oid, self.spi.get_oid(), self.advance))
         cmdqueue = self.spi.get_command_queue()
         self.queue_spi_out_cmd = self.mcu.lookup_command(
             "queue_timed_spi oid=%c clock=%u b0=%c b1=%c b2=%c b3=%c b4=%c b5=%c b6=%c b7=%c b8=%c b9=%c b10=%c", cq=cmdqueue)
+        self.set_advance_cmd = self.mcu.lookup_command(
+            "config_advance_parameter oid=%c advance=%i", cq=cmdqueue)
 
     def cmd_SET_REGISTER(self, reg, value):
         self.spi.spi_send([reg, value])
@@ -63,8 +66,8 @@ class spi_valves:
         self.set_valves(print_time, values)
         self.last_values = values
 
-    cmd_SET_VALVES_help = "Set the value of all valves"
-    def cmd_SET_VALVES(self, gcmd):
+    cmd_VALVES_SET_help = "Set the value of all valves"
+    def cmd_VALVES_SET(self, gcmd):
         parameters = gcmd.get_command_parameters().copy()
         values = parameters.pop('VALUES', None)
         values = [int(i) for i in values.split(',')]
@@ -84,7 +87,7 @@ class spi_valves:
         measured_time = self.reactor.monotonic()
         print_time = self.spi.get_mcu().estimated_print_time(measured_time)
         #print_time = toolhead.get_last_move_time()
-        self.enable_pin.set_digital(print_time+0.100, 1) #0.1 is now arbitrary. If this time is too short, the MCU will shut down
+        self.enable_pin.set_digital(print_time+0.100, 0) #0.1 is now arbitrary. If this time is too short, the MCU will shut down
         # because probably it cannot make the deadline.
         
     cmd_VALVES_DISABLE_help = "Disables the valves"
@@ -92,8 +95,16 @@ class spi_valves:
         measured_time = self.reactor.monotonic()
         print_time = self.spi.get_mcu().estimated_print_time(measured_time)
         #print_time = toolhead.get_last_move_time()
-        self.enable_pin.set_digital(print_time+0.100, 0)
+        self.enable_pin.set_digital(print_time+0.100, 1)
 
+    cmd_VALVES_SET_ADVANCE_help = "Sets the advance time parameters, controlling how much later or earliers the valves should open"
+    def cmd_VALVES_SET_ADVANCE(self, gcmd):
+        parameters = gcmd.get_command_parameters().copy()
+        advance_time = parameters.pop('TIME', None)
+        if advance_time is None:
+            raise gcmd.error("Invalid TIME value")
+        self.advance = self.mcu.seconds_to_clock(int(advance_time)/1000.0)
+        self.set_advance_cmd.send([self.oid, self.advance])
 
 def load_config_prefix(config):
     return spi_valves(config)
