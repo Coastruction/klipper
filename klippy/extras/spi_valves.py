@@ -9,7 +9,7 @@ from . import bus
 class spi_valves:
     def __init__(self, config):
         self.spi = bus.MCU_SPI_from_config(
-            config, 0, pin_option="latch_pin", default_speed=25000000) #changed enable_pin to latch_pin
+            config, 0, pin_option="latch_pin", default_speed=25000000)
         self.mcu = mcu = self.spi.get_mcu()
         self.oid = oid = mcu.create_oid()
 
@@ -23,11 +23,11 @@ class spi_valves:
         
         ppins = self.printer.lookup_object("pins")
         oe_pin = config.get("enable_pin")
-        self.enable_pin = ppins.setup_pin('digital_out', oe_pin)
+        self.enable_pin = ppins.setup_pin('pwm', oe_pin)
         self.enable_pin.setup_max_duration(0.)
-        self.enable_pin.setup_start_value(1, 1, False)
+        self.enable_pin.setup_start_value(1., 1., False)
 
-        self.advance = config.get("advance", 0)
+        self.advance = int(config.get("advance", 0))
         
         gcode = self.printer.lookup_object('gcode')
         gcode.register_command("VALVES_SET", self.cmd_VALVES_SET,
@@ -38,6 +38,8 @@ class spi_valves:
                                    desc=self.cmd_VALVES_DISABLE_help)        
         gcode.register_command("VALVES_SET_ADVANCE", self.cmd_VALVES_SET_ADVANCE,
                                    desc=self.cmd_VALVES_SET_ADVANCE_help) 
+        gcode.register_command("VALVES_PULSE", self.cmd_VALVES_PULSE,
+                                   desc=self.cmd_VALVES_PULSE_help) 
         self.last_values = [0,0,0,0,0,0,0,0,0,0]
 
         
@@ -87,7 +89,8 @@ class spi_valves:
         measured_time = self.reactor.monotonic()
         print_time = self.spi.get_mcu().estimated_print_time(measured_time)
         #print_time = toolhead.get_last_move_time()
-        self.enable_pin.set_digital(print_time+0.100, 0) #0.1 is now arbitrary. If this time is too short, the MCU will shut down
+        self.enable_pin.set_pwm(print_time+0.100, 0.) 
+        #^^^ 0.1 is now arbitrary. If this time is too short, the MCU will shut down
         # because probably it cannot make the deadline.
         
     cmd_VALVES_DISABLE_help = "Disables the valves"
@@ -95,7 +98,9 @@ class spi_valves:
         measured_time = self.reactor.monotonic()
         print_time = self.spi.get_mcu().estimated_print_time(measured_time)
         #print_time = toolhead.get_last_move_time()
-        self.enable_pin.set_digital(print_time+0.100, 1)
+        self.enable_pin.set_pwm(print_time+0.100, 1.)
+        #^^^ 0.1 is now arbitrary. If this time is too short, the MCU will shut down
+        # because probably it cannot make the deadline.
 
     cmd_VALVES_SET_ADVANCE_help = "Sets the advance time parameters, controlling how much later or earliers the valves should open"
     def cmd_VALVES_SET_ADVANCE(self, gcmd):
@@ -105,6 +110,33 @@ class spi_valves:
             raise gcmd.error("Invalid TIME value")
         self.advance = self.mcu.seconds_to_clock(int(advance_time)/1000.0)
         self.set_advance_cmd.send([self.oid, self.advance])
+
+    cmd_VALVES_PULSE_help = "Enables/disables the valve at the given frequency. The set pattern is not affected."
+    def cmd_VALVES_PULSE(self, gcmd):
+        measured_time = self.reactor.monotonic()
+        print_time = self.spi.get_mcu().estimated_print_time(measured_time)
+
+        parameters = gcmd.get_command_parameters().copy()
+        try:
+            frequency = float(parameters.pop('FREQUENCY', None))
+        except TypeError:
+            raise gcmd.error("Incorrect or missing FREQUENCY parameter")
+            
+        if frequency > 100.0:
+            raise gcmd.error("Frequency maximum allowed 100 Hz!")
+        if frequency < 0.0:
+            raise gcmd.error("Negative frequency is impossible. Are you Einstein or something?")
+        if frequency == 0.0:
+            value = 1. # turn valve off
+            cycle_time = 0.1 #default cycle_time
+        else:
+            value = 0.5 #equal amounts off and on
+            cycle_time = 1 / frequency
+       
+        self.enable_pin.set_pwm(print_time+0.1, value, cycle_time)
+
+        
+
 
 def load_config_prefix(config):
     return spi_valves(config)
