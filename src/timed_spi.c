@@ -1,4 +1,3 @@
-
 #include "basecmd.h" // oid_alloc
 #include "board/irq.h" // irq_disable
 #include "board/misc.h" // timer_is_before
